@@ -1,54 +1,112 @@
 const express = require('express');
+const bodyParser = require('body-parser');
+const { google } = require('googleapis');
+
+// Configurazione Stateless tramite Variabili d'Ambiente
+let credentials;
+try {
+  // Render passerà l'intero JSON del Service Account come stringa
+  credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
+} catch (error) {
+  console.error("Errore nel caricamento delle credenziali GOOGLE_SERVICE_ACCOUNT:", error.message);
+}
+
+const CALENDAR_ID = process.env.CALENDAR_ID;
+
+// Configurazione del client JWT (Immune al reset del disco di Render)
+const auth = new google.auth.JWT(
+  credentials?.client_email,
+  null,
+  credentials?.private_key ? credentials.private_key.replace(/\\n/g, '\n') : null,
+  ['https://www.googleapis.com/auth/calendar']
+);
+const calendar = google.calendar({ version: 'v3', auth });
+
 const app = express();
-
-app.use(express.json());
-
-const PORT = process.env.PORT || 3000;
+app.use(bodyParser.json());
 
 app.post('/webhook', async (req, res) => {
-    try {
-        const { message } = req.body;
+  try {
+    const vapiPayload = req.body;
+    
+    if (vapiPayload.message.type === 'tool-calls') {
+      const toolCall = vapiPayload.message.toolCalls[0];
+      const functionName = toolCall.function.name;
+      const args = toolCall.function.arguments;
 
-        if (message && message.type === 'tool-calls') {
-            const toolCalls = message.toolCalls;
-            const toolResponses = [];
+      console.log(`Tool intercettato: ${functionName}`, args);
 
-            for (const toolCall of toolCalls) {
-                const functionName = toolCall.function.name;
-                const args = toolCall.function.arguments; 
+      // TOOL: checkAvailability
+      if (functionName === 'checkAvailability') {
+        const requestedDateStr = args.date; // Formato previsto: YYYY-MM-DD
+        
+        const timeMin = new Date(`${requestedDateStr}T09:00:00+02:00`).toISOString();
+        const timeMax = new Date(`${requestedDateStr}T19:00:00+02:00`).toISOString();
 
-                console.log(`Richiesta tool ricevuta: ${functionName}`, args);
+        const response = await calendar.events.list({
+          calendarId: CALENDAR_ID,
+          timeMin: timeMin,
+          timeMax: timeMax,
+          singleEvents: true,
+          orderBy: 'startTime',
+        });
 
-                if (functionName === 'checkAvailability') {
-                    toolResponses.push({
-                        toolCallId: toolCall.id,
-                        result: "Mock: Ci sono posti liberi domenica alle 15:00 e alle 16:30." 
-                    });
-                } else if (functionName === 'bookAppointment') {
-                    toolResponses.push({
-                        toolCallId: toolCall.id,
-                        result: "Mock: Appuntamento confermato con successo."
-                    });
-                } else {
-                    toolResponses.push({
-                        toolCallId: toolCall.id,
-                        result: "Errore: Tool non riconosciuto dal server."
-                    });
-                }
-            }
-
-            return res.status(201).json({
-                results: toolResponses
-            });
+        const events = response.data.items;
+        
+        if (events.length === 0) {
+          return res.json({
+            results: [{
+              toolCallId: toolCall.id,
+              result: "Disponibilità totale. Il salone è libero dalle 9:00 alle 19:00."
+            }]
+          });
+        } else {
+          let orariOccupati = events.map(e => {
+            return new Date(e.start.dateTime).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+          }).join(', ');
+          
+          return res.json({
+            results: [{
+              toolCallId: toolCall.id,
+              result: `Orari occupati: ${orariOccupati}. Proponi alternative tra le 9:00 e le 19:00.`
+            }]
+          });
         }
+      }
 
-        return res.status(200).send('Webhook ricevuto correttamente.');
-    } catch (error) {
-        console.error('Errore del server:', error);
-        return res.status(500).send('Errore interno del server');
+      // TOOL: bookAppointment
+      if (functionName === 'bookAppointment') {
+        const { date, time, name, service } = args;
+
+        const startDateTime = new Date(`${date}T${time}:00+02:00`);
+        const endDateTime = new Date(startDateTime.getTime() + 30 * 60 * 1000); // Slot standard 30 min
+
+        const event = {
+          summary: `${service} - ${name}`,
+          description: `Prenotazione automatica Vapi`,
+          start: { dateTime: startDateTime.toISOString(), timeZone: 'Europe/Rome' },
+          end: { dateTime: endDateTime.toISOString(), timeZone: 'Europe/Rome' },
+        };
+
+        await calendar.events.insert({
+          calendarId: CALENDAR_ID,
+          resource: event,
+        });
+
+        return res.json({
+          results: [{
+            toolCallId: toolCall.id,
+            result: `Appuntamento registrato per ${name} il ${date} alle ${time}.`
+          }]
+        });
+      }
     }
+    res.status(200).send('OK');
+  } catch (error) {
+    console.error('Errore esecuzione tool:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
 });
 
-app.listen(PORT, () => {
-    console.log(`Server operativo e in ascolto sulla porta ${PORT}`);
-});
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server stateless attivo sulla porta ${PORT}`));
