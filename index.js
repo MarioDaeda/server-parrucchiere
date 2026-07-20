@@ -32,6 +32,32 @@ function getCalendarClient() {
 const app = express();
 app.use(bodyParser.json());
 
+function authenticateWebhook(req, res, next) {
+    const authorization = req.get('Authorization');
+
+    if (!authorization || !authorization.startsWith('Bearer ')) {
+        return res.status(401).json({
+            error: 'Autenticazione richiesta'
+        });
+    }
+
+    const receivedToken = authorization.slice('Bearer '.length).trim();
+
+    const expectedBuffer = Buffer.from(VAPI_WEBHOOK_SECRET);
+    const receivedBuffer = Buffer.from(receivedToken);
+
+    if (
+        expectedBuffer.length !== receivedBuffer.length ||
+        !crypto.timingSafeEqual(expectedBuffer, receivedBuffer)
+    ) {
+        return res.status(401).json({
+            error: 'Credenziali non valide'
+        });
+    }
+
+    next();
+}
+
 // --- 3. ENDPOINT WEBHOOK ---
 app.post('/webhook', async (req, res) => {
     try {
