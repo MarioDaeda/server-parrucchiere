@@ -59,7 +59,7 @@ function authenticateWebhook(req, res, next) {
 }
 
 // --- 3. ENDPOINT WEBHOOK ---
-app.post('/webhook', async (req, res) => {
+app.post('/webhook', authenticateWebhook, async (req, res) => {
     try {
         const vapiPayload = req.body;
 
