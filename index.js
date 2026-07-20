@@ -1,13 +1,17 @@
 const express = require('express');
 const bodyParser = require('body-parser');
+const crypto = require('crypto');
 const { google } = require('googleapis');
 
 // --- 1. CONTROLLO AMBIENTE ---
 const credentialsString = process.env.GOOGLE_SERVICE_ACCOUNT;
 const CALENDAR_ID = process.env.CALENDAR_ID;
+const VAPI_WEBHOOK_SECRET = process.env.VAPI_WEBHOOK_SECRET;
 
-if (!credentialsString || !CALENDAR_ID) {
-    console.error("ERRORE CRITICO: Variabili d'ambiente GOOGLE_SERVICE_ACCOUNT o CALENDAR_ID mancanti.");
+if (!credentialsString || !CALENDAR_ID || !VAPI_WEBHOOK_SECRET) {
+    console.error(
+        'ERRORE CRITICO: variabili GOOGLE_SERVICE_ACCOUNT, CALENDAR_ID o VAPI_WEBHOOK_SECRET mancanti.'
+    );
     process.exit(1);
 }
 
