@@ -271,9 +271,7 @@ app.post(
                     }
                 });
 
-                const result =
-                    `Appuntamento confermato per ${args.name} ` +
-                    `il ${args.date} alle ${args.time}.`;
+                const result = 'PRENOTAZIONE_CREATA';
 
                 return res.status(200).json({
                     results: [
