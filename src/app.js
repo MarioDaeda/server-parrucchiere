@@ -3,6 +3,10 @@
 const express = require("express");
 
 const {
+  SchedulingError,
+} = require("./scheduling");
+
+const {
   createBearerAuthenticator,
 } = require("./security");
 const {
@@ -178,7 +182,21 @@ function createApplication({
 
         let result;
 
-        if (functionName === "checkAvailability") {
+        if (functionName === "listServices") {
+          result =
+            await calendarService.listServices(
+              args,
+            );
+        } else if (
+          functionName === "getServiceInfo"
+        ) {
+          result =
+            await calendarService.getServiceInfo(
+              args,
+            );
+        } else if (
+          functionName === "checkAvailability"
+        ) {
           result =
             await calendarService.checkAvailability(
               args,
@@ -211,7 +229,8 @@ function createApplication({
         });
       } catch (error) {
         const status =
-          error instanceof VapiPayloadError
+          error instanceof VapiPayloadError ||
+          error instanceof SchedulingError
             ? 400
             : 500;
 
