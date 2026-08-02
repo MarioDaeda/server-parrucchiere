@@ -1,5 +1,7 @@
 "use strict";
 
+const { resolveService } = require("./salon-config");
+
 const ALLOWED_OUTCOMES = new Set([
   "booking_completed",
   "information_provided",
@@ -133,16 +135,114 @@ function flattenStrings(value, output = [], depth = 0) {
   return output;
 }
 
+function parseToolArguments(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractBookAppointmentArguments(value, seen = new Set(), depth = 0) {
+  if (!value || depth > 12 || seen.has(value)) {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    seen.add(value);
+
+    for (const item of value) {
+      const result = extractBookAppointmentArguments(
+        item,
+        seen,
+        depth + 1,
+      );
+
+      if (result) {
+        return result;
+      }
+    }
+
+    return null;
+  }
+
+  if (typeof value !== "object") {
+    return null;
+  }
+
+  seen.add(value);
+
+  const node = asObject(value);
+  const functionNode = asObject(node.function);
+  const toolCallNode = asObject(node.toolCall);
+  const nestedFunctionNode = asObject(toolCallNode.function);
+  const toolName = cleanText(
+    firstDefined(
+      node.name,
+      functionNode.name,
+      toolCallNode.name,
+      nestedFunctionNode.name,
+    ),
+    120,
+  );
+
+  if (toolName?.toLowerCase() === "bookappointment") {
+    const argumentsObject = parseToolArguments(
+      firstDefined(
+        node.arguments,
+        functionNode.arguments,
+        toolCallNode.arguments,
+        nestedFunctionNode.arguments,
+      ),
+    );
+
+    if (argumentsObject) {
+      return argumentsObject;
+    }
+  }
+
+  for (const item of Object.values(node)) {
+    const result = extractBookAppointmentArguments(
+      item,
+      seen,
+      depth + 1,
+    );
+
+    if (result) {
+      return result;
+    }
+  }
+
+  return null;
+}
+
 function includesAny(haystack, needles) {
   return needles.some((needle) => haystack.includes(needle));
 }
 
 function resolveOutcome({
+  bookingArguments,
   call,
   endedReason,
   message,
   structuredData,
 }) {
+  if (bookingArguments) {
+    return "booking_completed";
+  }
+
   const explicitOutcome = cleanText(
     structuredData.outcome,
     64,
@@ -253,6 +353,29 @@ function resolveOutcome({
   return "incomplete";
 }
 
+function buildBookingSummary({
+  bookingArguments,
+  requestedService,
+}) {
+  if (!bookingArguments) {
+    return null;
+  }
+
+  const date = cleanText(bookingArguments.date, 32);
+  const time = cleanText(bookingArguments.time, 16);
+  const service = requestedService || "il servizio richiesto";
+
+  if (date && time) {
+    return `Prenotazione completata per ${service} il ${date} alle ${time}.`;
+  }
+
+  if (date) {
+    return `Prenotazione completata per ${service} il ${date}.`;
+  }
+
+  return `Prenotazione completata per ${service}.`;
+}
+
 function normalizeVapiEndOfCallReport(
   payload,
   { salonId },
@@ -323,6 +446,15 @@ function normalizeVapiEndOfCallReport(
     firstDefined(message.endedReason, call.endedReason),
     240,
   );
+  const bookingArguments =
+    extractBookAppointmentArguments(message);
+  const resolvedService = resolveService({
+    service: firstDefined(
+      bookingArguments?.service,
+      bookingArguments?.serviceName,
+    ),
+    serviceCode: bookingArguments?.serviceCode,
+  });
 
   const customerPhone = normalizePhone(
     firstDefined(
@@ -330,6 +462,8 @@ function normalizeVapiEndOfCallReport(
       customer.phoneNumber,
       message.customer?.number,
       call.phoneCallProviderDetails?.from,
+      bookingArguments?.phone,
+      bookingArguments?.phoneNumber,
     ),
   );
 
@@ -339,6 +473,9 @@ function normalizeVapiEndOfCallReport(
       structuredData.fullName,
       structuredData.name,
       customer.name,
+      bookingArguments?.name,
+      bookingArguments?.customerName,
+      bookingArguments?.fullName,
     ),
     160,
   );
@@ -349,6 +486,10 @@ function normalizeVapiEndOfCallReport(
       structuredData.service,
       structuredData.serviceName,
       structuredData.servizio,
+      resolvedService?.name,
+      bookingArguments?.service,
+      bookingArguments?.serviceName,
+      bookingArguments?.serviceCode,
     ),
     240,
   );
@@ -358,6 +499,10 @@ function normalizeVapiEndOfCallReport(
       analysis.summary,
       structuredData.summary,
       structuredData.riepilogo,
+      buildBookingSummary({
+        bookingArguments,
+        requestedService,
+      }),
     ),
     2000,
   );
@@ -389,6 +534,7 @@ function normalizeVapiEndOfCallReport(
     externalCallId,
     externalEventId,
     outcome: resolveOutcome({
+      bookingArguments,
       call,
       endedReason,
       message,
