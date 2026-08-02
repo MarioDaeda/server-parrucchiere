@@ -52,6 +52,32 @@ function createCalendarService({calendarClient, calendarId, googleServiceAccount
     return `bcq${crypto.createHash("sha256").update(source).digest("hex").slice(0, 40)}`;
   }
 
+  function isMissingEventError(error) {
+    const status = Number(
+      error?.code ||
+      error?.response?.status,
+    );
+
+    return status === 404 || status === 410;
+  }
+
+  async function eventAlreadyExists(eventId) {
+    try {
+      await getClient().events.get({
+        calendarId,
+        eventId,
+      });
+
+      return true;
+    } catch (error) {
+      if (isMissingEventError(error)) {
+        return false;
+      }
+
+      throw error;
+    }
+  }
+
   return {
     async listServices({category} = {}) {
       const result = listServices(category);
@@ -84,6 +110,19 @@ function createCalendarService({calendarClient, calendarId, googleServiceAccount
       const {date, name, phone, time} = args;
       const service = requireService(args);
       if (!date || !time || !String(name || "").trim()) throw new SchedulingError("Per prenotare servono data, ora e nome del cliente.");
+
+      const eventId = stableEventId({
+        date,
+        name,
+        phone,
+        serviceCode: service.code,
+        time,
+      });
+
+      if (await eventAlreadyExists(eventId)) {
+        return "PRENOTAZIONE_GIA_PRESENTE: l'appuntamento risulta già inserito.";
+      }
+
       const {busy, window} = await readBusyIntervals(date);
       if (!window) return "PRENOTAZIONE_NON_CREATA: il salone è chiuso nella data richiesta.";
       if (!isExactSlotAvailable({busyIntervals: busy, date, durationMinutes: service.durationMinutes, now: now(), time})) {
@@ -91,7 +130,6 @@ function createCalendarService({calendarClient, calendarId, googleServiceAccount
       }
       const start = parseLocalTime(date, time);
       const end = start.plus({minutes: service.durationMinutes});
-      const eventId = stableEventId({date, name, phone, serviceCode: service.code, time});
       try {
         await getClient().events.insert({
           calendarId,

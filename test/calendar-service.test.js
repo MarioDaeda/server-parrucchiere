@@ -8,14 +8,81 @@ const {createCalendarService} = require("../src/calendar-service");
 const CALENDAR_ID = "calendar@example.com";
 const NOW = DateTime.fromISO("2026-08-02T18:00:00+02:00", {zone: "Europe/Rome"});
 
-function createFakeCalendar({busy = [], insertError = null} = {}) {
-  const calls = {calendars: [], freebusy: [], inserts: []};
+function createFakeCalendar({
+  busy = [],
+  existingEvent = null,
+  getError = null,
+  insertError = null,
+} = {}) {
+  const calls = {
+    calendars: [],
+    freebusy: [],
+    gets: [],
+    inserts: [],
+  };
+
   return {
     calls,
     client: {
-      calendars: {async get(args) { calls.calendars.push(args); return {data: {id: args.calendarId}}; }},
-      events: {async insert(args) { calls.inserts.push(args); if (insertError) throw insertError; return {data: {id: args.requestBody.id}}; }},
-      freebusy: {async query(args) { calls.freebusy.push(args); return {data: {calendars: {[CALENDAR_ID]: {busy}}}}; }},
+      calendars: {
+        async get(args) {
+          calls.calendars.push(args);
+          return {
+            data: {
+              id: args.calendarId,
+            },
+          };
+        },
+      },
+      events: {
+        async get(args) {
+          calls.gets.push(args);
+
+          if (getError) {
+            throw getError;
+          }
+
+          if (existingEvent) {
+            return {
+              data: existingEvent,
+            };
+          }
+
+          const error = new Error(
+            "event not found",
+          );
+          error.code = 404;
+          throw error;
+        },
+
+        async insert(args) {
+          calls.inserts.push(args);
+
+          if (insertError) {
+            throw insertError;
+          }
+
+          return {
+            data: {
+              id: args.requestBody.id,
+            },
+          };
+        },
+      },
+      freebusy: {
+        async query(args) {
+          calls.freebusy.push(args);
+          return {
+            data: {
+              calendars: {
+                [CALENDAR_ID]: {
+                  busy,
+                },
+              },
+            },
+          };
+        },
+      },
     },
   };
 }
@@ -74,6 +141,86 @@ test("ricontrolla lo slot prima di prenotare", async () => {
   assert.match(result, /PRENOTAZIONE_NON_CREATA/);
   assert.equal(fake.calls.inserts.length, 0);
 });
+
+test(
+  "riconosce un retry prima del controllo FreeBusy",
+  async () => {
+    const fake = createFakeCalendar({
+      busy: [
+        {
+          start:
+            "2026-08-04T09:00:00+02:00",
+          end:
+            "2026-08-04T09:45:00+02:00",
+        },
+      ],
+      existingEvent: {
+        id: "evento-esistente",
+        status: "confirmed",
+      },
+    });
+
+    const result = await createService(
+      fake,
+    ).bookAppointment({
+      date: "2026-08-04",
+      time: "09:00",
+      serviceCode: "taglio_uomo",
+      name: "Mario Rossi",
+      phone: "+393331234567",
+    });
+
+    assert.match(
+      result,
+      /PRENOTAZIONE_GIA_PRESENTE/,
+    );
+    assert.equal(fake.calls.gets.length, 1);
+    assert.equal(
+      fake.calls.freebusy.length,
+      0,
+    );
+    assert.equal(
+      fake.calls.inserts.length,
+      0,
+    );
+  },
+);
+
+test(
+  "non nasconde errori Google diversi da evento assente",
+  async () => {
+    const error = new Error(
+      "permission denied",
+    );
+    error.code = 403;
+
+    const fake = createFakeCalendar({
+      getError: error,
+    });
+
+    await assert.rejects(
+      () =>
+        createService(
+          fake,
+        ).bookAppointment({
+          date: "2026-08-04",
+          time: "09:00",
+          serviceCode: "taglio_uomo",
+          name: "Mario Rossi",
+        }),
+      /permission denied/,
+    );
+
+    assert.equal(
+      fake.calls.freebusy.length,
+      0,
+    );
+    assert.equal(
+      fake.calls.inserts.length,
+      0,
+    );
+  },
+);
 
 test("tratta il retry come prenotazione già presente", async () => {
   const error = new Error("duplicate");
