@@ -248,3 +248,139 @@ test(
     );
   },
 );
+
+test(
+  "normalizza costo totale e breakdown Vapi in microdollari USD",
+  () => {
+    const payload = createPayload();
+    payload.message.cost = 0.1413;
+    payload.message.costBreakdown = {
+      chat: 0,
+      knowledgeBaseCost: 0,
+      llm: 0.037,
+      stt: 0.015,
+      total: 0.1413,
+      transport: 0,
+      tts: 0.0146,
+      vapi: 0.0747,
+    };
+    payload.message.costs = [
+      {
+        cost: 0.015049206666666665,
+        type: "transcriber",
+      },
+      {
+        cost: 0.0369677,
+        type: "model",
+      },
+      {
+        cost: 0.01461,
+        type: "voice",
+      },
+      {
+        cost: 0.074675,
+        type: "vapi",
+      },
+      {
+        cost: 0,
+        type: "knowledge-base",
+      },
+    ];
+
+    const normalized =
+      normalizeVapiEndOfCallReport(
+        payload,
+        {
+          salonId: SALON_ID,
+        },
+      );
+
+    assert.deepEqual(
+      normalized.costsUsdMicros,
+      {
+        chatUsdMicros: 0,
+        knowledgeBaseUsdMicros: 0,
+        llmUsdMicros: 37000,
+        sttUsdMicros: 15000,
+        totalUsdMicros: 141300,
+        transportUsdMicros: 0,
+        ttsUsdMicros: 14600,
+        vapiUsdMicros: 74700,
+      },
+    );
+  },
+);
+
+test(
+  "usa l'array costs quando costBreakdown non è presente",
+  () => {
+    const payload = createPayload();
+    payload.message.costs = [
+      {
+        cost: 0.015049206666666665,
+        type: "transcriber",
+      },
+      {
+        cost: 0.0369677,
+        type: "model",
+      },
+      {
+        cost: 0.01461,
+        type: "voice",
+      },
+      {
+        cost: 0.074675,
+        type: "vapi",
+      },
+    ];
+
+    const normalized =
+      normalizeVapiEndOfCallReport(
+        payload,
+        {
+          salonId: SALON_ID,
+        },
+      );
+
+    assert.deepEqual(
+      normalized.costsUsdMicros,
+      {
+        chatUsdMicros: null,
+        knowledgeBaseUsdMicros: null,
+        llmUsdMicros: 36968,
+        sttUsdMicros: 15049,
+        totalUsdMicros: 141302,
+        transportUsdMicros: null,
+        ttsUsdMicros: 14610,
+        vapiUsdMicros: 74675,
+      },
+    );
+  },
+);
+
+test(
+  "ignora costi negativi o non numerici senza bloccare il report",
+  () => {
+    const payload = createPayload();
+    payload.message.cost = -1;
+    payload.message.costBreakdown = {
+      llm: "non disponibile",
+    };
+
+    const normalized =
+      normalizeVapiEndOfCallReport(
+        payload,
+        {
+          salonId: SALON_ID,
+        },
+      );
+
+    assert.equal(
+      Object.hasOwn(
+        normalized,
+        "costsUsdMicros",
+      ),
+      false,
+    );
+  },
+);
