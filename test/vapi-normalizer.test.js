@@ -89,6 +89,99 @@ test(
 );
 
 test(
+  "estrae cliente e servizio da arguments JSON di bookAppointment",
+  () => {
+    const payload = createPayload();
+    payload.message.analysis = {
+      structuredData: {
+        outcome: "incomplete",
+      },
+    };
+    payload.message.call.customer = {};
+    payload.message.artifact.messages = [
+      {
+        toolCall: {
+          function: {
+            arguments: JSON.stringify({
+              date: "2026-08-04",
+              name: "Mario Test End To End",
+              serviceCode: "taglio_uomo",
+              time: "09:30",
+            }),
+            name: "bookAppointment",
+          },
+        },
+      },
+    ];
+
+    const normalized =
+      normalizeVapiEndOfCallReport(
+        payload,
+        {
+          salonId: SALON_ID,
+        },
+      );
+
+    assert.equal(
+      normalized.customerName,
+      "Mario Test End To End",
+    );
+    assert.equal(normalized.customerPhone, null);
+    assert.equal(normalized.outcome, "booking_completed");
+    assert.equal(normalized.requestedService, "Taglio uomo");
+    assert.equal(
+      normalized.summary,
+      "Prenotazione completata per Taglio uomo il 2026-08-04 alle 09:30.",
+    );
+  },
+);
+
+test(
+  "supporta arguments già deserializzati in una tool call annidata",
+  () => {
+    const payload = createPayload();
+    payload.message.analysis = {
+      structuredData: {},
+    };
+    payload.message.call.customer = {};
+    payload.message.artifact.messages = [
+      {
+        content: [
+          {
+            function: {
+              arguments: {
+                date: "2026-08-05",
+                name: "Giulia Verdi",
+                phone: "+39 333 222 1100",
+                serviceCode: "taglio_uomo",
+                time: "10:15",
+              },
+              name: "bookAppointment",
+            },
+          },
+        ],
+      },
+    ];
+
+    const normalized =
+      normalizeVapiEndOfCallReport(
+        payload,
+        {
+          salonId: SALON_ID,
+        },
+      );
+
+    assert.equal(normalized.customerName, "Giulia Verdi");
+    assert.equal(
+      normalized.customerPhone,
+      "+393332221100",
+    );
+    assert.equal(normalized.requestedService, "Taglio uomo");
+    assert.equal(normalized.outcome, "booking_completed");
+  },
+);
+
+test(
   "genera lo stesso event id quando Vapi ritenta il report",
   () => {
     const first =
