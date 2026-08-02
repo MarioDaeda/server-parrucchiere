@@ -81,6 +81,148 @@ function numericDuration(value) {
   return Math.round(number);
 }
 
+function usdToMicros(value) {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  const number = Number(value);
+
+  if (!Number.isFinite(number) || number < 0) {
+    return null;
+  }
+
+  return Math.round(number * 1_000_000);
+}
+
+function findCostByType(costs, types) {
+  if (!Array.isArray(costs)) {
+    return null;
+  }
+
+  const accepted = new Set(
+    types.map((type) => type.toLowerCase()),
+  );
+  const item = costs.find((candidate) => {
+    const type = cleanText(
+      asObject(candidate).type,
+      80,
+    )?.toLowerCase();
+
+    return type && accepted.has(type);
+  });
+
+  return usdToMicros(asObject(item).cost);
+}
+
+function normalizeVapiCosts({
+  call,
+  message,
+  root,
+}) {
+  const breakdown = asObject(
+    firstDefined(
+      root.costBreakdown,
+      message.costBreakdown,
+      call.costBreakdown,
+    ),
+  );
+  const costs = firstDefined(
+    root.costs,
+    message.costs,
+    call.costs,
+  );
+
+  const components = {
+    chatUsdMicros: firstDefined(
+      usdToMicros(breakdown.chat),
+      findCostByType(costs, ["chat"]),
+    ),
+    knowledgeBaseUsdMicros: firstDefined(
+      usdToMicros(
+        firstDefined(
+          breakdown.knowledgeBaseCost,
+          breakdown.knowledgeBase,
+        ),
+      ),
+      findCostByType(costs, [
+        "knowledge-base",
+        "knowledge_base",
+      ]),
+    ),
+    llmUsdMicros: firstDefined(
+      usdToMicros(breakdown.llm),
+      findCostByType(costs, ["model", "llm"]),
+    ),
+    sttUsdMicros: firstDefined(
+      usdToMicros(breakdown.stt),
+      findCostByType(costs, [
+        "transcriber",
+        "stt",
+      ]),
+    ),
+    transportUsdMicros: firstDefined(
+      usdToMicros(breakdown.transport),
+      findCostByType(costs, ["transport"]),
+    ),
+    ttsUsdMicros: firstDefined(
+      usdToMicros(breakdown.tts),
+      findCostByType(costs, ["voice", "tts"]),
+    ),
+    vapiUsdMicros: firstDefined(
+      usdToMicros(breakdown.vapi),
+      findCostByType(costs, ["vapi"]),
+    ),
+  };
+
+  for (const [key, value] of Object.entries(
+    components,
+  )) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      components[key] = null;
+    }
+  }
+
+  const explicitTotal = usdToMicros(
+    firstDefined(
+      root.cost,
+      message.cost,
+      call.cost,
+      breakdown.total,
+    ),
+  );
+  const componentValues = Object.values(
+    components,
+  ).filter((value) =>
+    Number.isSafeInteger(value),
+  );
+
+  const totalUsdMicros =
+    explicitTotal ??
+    (componentValues.length > 0
+      ? componentValues.reduce(
+          (total, value) => total + value,
+          0,
+        )
+      : null);
+
+  if (
+    totalUsdMicros === null &&
+    componentValues.length === 0
+  ) {
+    return null;
+  }
+
+  return {
+    ...components,
+    totalUsdMicros,
+  };
+}
+
 function deriveDurationSeconds({
   call,
   endedAt,
@@ -520,10 +662,18 @@ function normalizeVapiEndOfCallReport(
     ),
     240,
   );
+  const costsUsdMicros = normalizeVapiCosts({
+    call,
+    message,
+    root,
+  });
 
   return {
     customerName,
     customerPhone,
+    ...(costsUsdMicros
+      ? { costsUsdMicros }
+      : {}),
     durationSeconds: deriveDurationSeconds({
       call,
       endedAt,
