@@ -1,0 +1,66 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "listServices",
+      "description": "Elenca i servizi prenotabili con codice, durata e prezzo indicativo.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": ["taglio", "barba", "piega", "colore", "schiariture", "trattamenti", "consulenza"]
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "getServiceInfo",
+      "description": "Restituisce nome, durata e prezzo indicativo del servizio.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "serviceCode": {"type": "string"},
+          "service": {"type": "string"}
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "checkAvailability",
+      "description": "Calcola gli orari disponibili considerando orari ufficiali, eventi Calendar e durata completa.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "date": {"type": "string", "description": "AAAA-MM-GG"},
+          "serviceCode": {"type": "string"},
+          "preferredTime": {"type": "string", "description": "HH:MM, facoltativa"}
+        },
+        "required": ["date", "serviceCode"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "bookAppointment",
+      "description": "Crea l'appuntamento dopo aver confermato servizio, data, ora e cliente.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "date": {"type": "string", "description": "AAAA-MM-GG"},
+          "time": {"type": "string", "description": "HH:MM"},
+          "serviceCode": {"type": "string"},
+          "name": {"type": "string"},
+          "phone": {"type": "string"}
+        },
+        "required": ["date", "time", "serviceCode", "name"]
+      }
+    }
+  }
+]

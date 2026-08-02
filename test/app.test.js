@@ -20,6 +20,20 @@ function createDependencies() {
   return {
     calls,
     calendarService: {
+      async getServiceInfo(args) {
+        calls.calendar.push([
+          "getServiceInfo",
+          args,
+        ]);
+        return "Taglio uomo, 45 minuti, prezzo indicativo circa 30 euro.";
+      },
+      async listServices(args) {
+        calls.calendar.push([
+          "listServices",
+          args,
+        ]);
+        return "taglio_uomo: Taglio uomo";
+      },
       async bookAppointment(args) {
         calls.calendar.push([
           "bookAppointment",
@@ -287,6 +301,43 @@ test(
       const body = await response.json();
 
       assert.equal(body.status, "ignored");
+    });
+  },
+);
+
+
+test(
+  "espone il catalogo servizi a Vapi",
+  async () => {
+    const dependencies = createDependencies();
+    const app = createApplication(dependencies);
+
+    await withServer(app, async (baseUrl) => {
+      const response = await post(
+        `${baseUrl}/webhook`,
+        {
+          message: {
+            toolCalls: [
+              {
+                function: {
+                  arguments: { category: "taglio" },
+                  name: "listServices",
+                },
+                id: "tool-services",
+              },
+            ],
+            type: "tool-calls",
+          },
+        },
+      );
+
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      assert.equal(body.results[0].toolCallId, "tool-services");
+      assert.deepEqual(dependencies.calls.calendar.at(-1), [
+        "listServices",
+        { category: "taglio" },
+      ]);
     });
   },
 );

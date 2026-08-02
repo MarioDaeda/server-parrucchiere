@@ -73,3 +73,9 @@ dashboard BetterCallQ
 L'ID evento è derivato dalla chiamata e dall'orario di conclusione. I retry
 dello stesso report producono quindi lo stesso ID e vengono deduplicati dal
 database.
+
+## Catalogo servizi e agenda reale
+
+La configurazione del salone pilota è in `config/gianluca-tadonio.json` e contiene orari ufficiali, 34 servizi, sinonimi, durate e prezzi indicativi.
+
+Il motore Calendar usa FreeBusy, `Europe/Rome`, durata completa, ricontrollo dello slot e ID evento stabile. La configurazione Vapi è in `vapi/tool-definitions.json` e `vapi/system-prompt-services.txt`.
